@@ -47,100 +47,49 @@
 \newpage
 
 \section{Executive Summary}
-This document serves as the formal technical report for the \textbf{P2P Web Share} project. The application is designed to be a lightweight, secure, and decentralized peer-to-peer (P2P) file-sharing web platform. It enables direct browser-to-browser file transfers without retaining, processing, or storing any file payload on a centralized server. This report outlines the system architecture, core technologies utilized, and detailed implementation mechanisms for each critical feature of the Minimum Viable Product (MVP).
+This technical report details the \textbf{P2P Web Share} project, a lightweight, decentralized peer-to-peer (P2P) file-sharing web application. It enables direct browser-to-browser file transfers without storing file data on a centralized server, ensuring high privacy and zero server-side bandwidth costs for file transmission.
 
-\section{System Architecture}
-The system architecture of the P2P Web Share application is intentionally decentralized for the file transfer process, utilizing a central server strictly for initial connection brokering.
-
-The application operates across two primary layers:
+\section{System Architecture \& Technology Stack}
+The application utilizes a hybrid decentralized architecture comprising two primary layers:
 \begin{enumerate}
-    \item \textbf{Frontend Client (Browser):} Responsible for the user interface, reading file data via the FileReader/Blob APIs, and maintaining the WebRTC data channel. This client handles all cryptographic operations locally.
-    \item \textbf{Signaling Server (Backend):} A minimalistic Node.js server that coordinates the initial WebRTC connection handshake. It relays Session Description Protocol (SDP) offers, answers, and Interactive Connectivity Establishment (ICE) candidates between peers.
+    \item \textbf{Frontend Client:} A React.js interface that handles user interactions, local file reads via the FileReader API, and WebRTC data channel establishment. Cryptographic operations are performed locally using the Web Crypto API.
+    \item \textbf{Signaling Server:} A minimalistic Node.js and Socket.io backend. It strictly coordinates the initial WebRTC connection handshake (SDP offers/answers and ICE candidates) without accessing the data stream.
 \end{enumerate}
-
-By completely decoupling the signaling process from the data transfer stream, the architecture guarantees absolute data privacy and requires near-zero server-side bandwidth for file transmission.
-
-\section{Technology Stack}
-The development of this application utilized a modern web technology stack carefully chosen to support real-time communication and robust frontend state management:
-
-\begin{itemize}
-    \item \textbf{Frontend User Interface:} React.js (structured with functional components and hooks).
-    \item \textbf{Styling and Aesthetics:} Custom vanilla CSS utilizing CSS Variables, responsive grid layouts, and glassmorphism design principles tailored for a premium dark mode experience.
-    \item \textbf{P2P Communication:} Native Browser WebRTC API (\texttt{RTCPeerConnection}, \texttt{RTCDataChannel}).
-    \item \textbf{Signaling Backend:} Node.js, Express.js, and Socket.io for persistent, full-duplex WebSocket connections.
-    \item \textbf{Cryptography:} Native Web Crypto API (\texttt{crypto.subtle.digest}) for reliable SHA-256 hash generation.
-    \item \textbf{Build Tool:} Vite for fast hot-module replacement and optimized frontend bundling.
-\end{itemize}
+The tech stack is rounded out with custom CSS for a modern, glassmorphism-based UI, and Vite as the build tool for optimized frontend bundling.
 
 \section{Feature Implementation Details}
 
-\subsection{Share Room Creation \& Link Generation}
-The entry point of the application requires the sender to initialize a transfer room.
+\subsection{Share Room Creation \& Handshake}
 \begin{itemize}
-    \item \textbf{Mechanism:} The interface provides a drag-and-drop zone. When a file is selected, the application validates its size against a hardcoded limit of 50 MB (\texttt{50 * 1024 * 1024} bytes). This constraint ensures that the standard browser memory limit is not exceeded during the MVP's operation.
-    \item \textbf{Room Allocation:} Upon valid file selection, the client invokes \texttt{crypto.randomUUID()} to generate a secure and unique Room ID. 
-    \item \textbf{Outcome:} A unique invite link is generated (e.g., \texttt{/room/[ROOM\_ID]}) and presented to the sender. This URL is used to invite the receiving peer.
-\end{itemize}
-
-\subsection{Signaling Handshake Process}
-To establish a direct connection, peers must first discover each other and negotiate network parameters.
-\begin{itemize}
-    \item \textbf{Connection Brokering:} Both the sender and receiver connect to the Node.js signaling server using Socket.io.
-    \item \textbf{Event Flow:}
-    \begin{enumerate}
-        \item The sender emits a \texttt{create-room} event to the server.
-        \item The receiver navigates to the invite link and emits a \texttt{join-room} event.
-        \item The server registers the receiver and broadcasts a \texttt{peer-joined} event back to the sender.
-        \item The sender instantiates an \texttt{RTCPeerConnection}, generates an SDP Offer, and transmits it via the server's \texttt{signal} event.
-        \item The receiver accepts the SDP Offer, generates an SDP Answer, and transmits it back.
-        \item Both clients exchange ICE candidates to establish the optimal direct network path.
-    \end{enumerate}
-    \item \textbf{Security \& Constraints:} The signaling server enforces a strict two-peer limit per room. It solely passes JSON metadata and is entirely blind to the actual binary file transfer.
+    \item \textbf{Room Creation:} Users drop a file (limited to 50 MB for memory safety) into the UI. The client generates a unique Room ID via \texttt{crypto.randomUUID()} and provides an invite link.
+    \item \textbf{Signaling:} The sender and receiver connect to the Node.js server. The sender creates an \texttt{RTCPeerConnection} and SDP Offer. The server relays this metadata (along with ICE candidates) to the receiver, establishing the peer-to-peer network path. The server enforces a strict two-peer limit per room.
 \end{itemize}
 
 \subsection{Direct P2P Data Transfer}
-Once the WebRTC tunnel is established, the application initiates the file stream.
 \begin{itemize}
-    \item \textbf{Data Channel:} The sender opens an \texttt{RTCDataChannel} labeled \texttt{file-transfer}. The channel is configured with \texttt{ordered: true} to guarantee that packets arrive in the exact sequence they were sent, preventing file corruption over unreliable networks.
-    \item \textbf{Memory-Safe Streaming:} To prevent browser UI thread blocking and memory exhaustion, the file is not loaded entirely into RAM. Instead, it is sliced into \texttt{32 KB} chunks using the \texttt{Blob.slice()} API and converted into an \texttt{ArrayBuffer} just before transmission.
-    \item \textbf{Buffer Management:} The application continuously monitors the \texttt{bufferedAmount} of the data channel. If it exceeds a predefined threshold (e.g., 256 KB), transmission is paused using the \texttt{bufferedamountlow} event listener to prevent packet loss and buffer overflow.
+    \item \textbf{Data Channel:} The sender opens an \texttt{RTCDataChannel} configured with \texttt{ordered: true} to guarantee packet sequence.
+    \item \textbf{Streaming:} To prevent UI thread blocking, the file is sliced into 32 KB chunks using the \texttt{Blob.slice()} API and converted into an \texttt{ArrayBuffer} immediately before transmission.
+    \item \textbf{Buffer Management:} Transmission pauses if the channel's \texttt{bufferedAmount} exceeds 256 KB, preventing packet loss and memory overflow.
 \end{itemize}
 
-\subsection{Cryptographic Verification \& Integrity}
-Data corruption is a common issue in peer-to-peer streaming. To mitigate this, rigorous cryptographic checks are enforced.
+\subsection{Cryptographic Integrity}
+To guarantee zero data corruption, rigorous cryptographic checks are enforced.
 \begin{itemize}
-    \item \textbf{Pre-computation:} Before sending, the sender computes a master SHA-256 hash for the entire file. Additionally, as each 32 KB chunk is prepared, a localized SHA-256 hash is generated.
-    \item \textbf{Transmission:} The sender transmits a JSON \texttt{chunk-header} containing the chunk index and its expected hash, immediately followed by the raw binary \texttt{ArrayBuffer}.
-    \item \textbf{Validation:} The receiver intercepts the binary data, computes its own SHA-256 hash, and strictly matches it against the expected hash in the preceding header. If a mismatch occurs, the chunk is rejected.
-    \item \textbf{Final Check:} Upon receiving the final chunk, the receiver computes a new SHA-256 hash over the entire reassembled Blob. This final hash is checked against the master hash provided at the start of the session.
+    \item \textbf{Hashing:} The sender computes a SHA-256 hash for both the entire file and each 32 KB chunk.
+    \item \textbf{Verification:} A \texttt{chunk-header} containing the expected hash is sent before the binary payload. The receiver validates the incoming payload against the header. Upon transfer completion, the receiver validates the reassembled Blob against the master file hash.
 \end{itemize}
 
-\subsection{Real-Time Progress Indicators}
-The User Interface is deeply integrated with the transfer state to provide continuous feedback.
+\subsection{Progress Tracking \& Error Handling}
 \begin{itemize}
-    \item \textbf{Metrics Tracked:} The React state maintains a \texttt{transfer} object that stores \texttt{totalBytes}, \texttt{transferredBytes}, \texttt{totalChunks}, and \texttt{verifiedChunks}.
-    \item \textbf{Speed Calculation:} By capturing a \texttt{performance.now()} timestamp at the beginning of the transfer, the application calculates the exact throughput in Megabytes per second (MB/s).
-    \item \textbf{Dynamic Status:} The UI connection status dynamically updates through phases: "Negotiating direct connection", "Transferring", "Verifying", and "Complete".
+    \item \textbf{Metrics:} The React state tracks transferred bytes and dynamically calculates the throughput speed (MB/s) and completion percentage in real-time.
+    \item \textbf{Disconnect Resilience:} The \texttt{RTCPeerConnection} and the signaling server monitor for connection drops. If a peer disconnects abruptly, a \texttt{peer-disconnected} event halts the transfer and alerts the remaining user gracefully.
 \end{itemize}
 
-\subsection{Graceful Disconnect \& Error Handling}
-Network instability is handled proactively to avoid application crashes.
-\begin{itemize}
-    \item \textbf{Event Listeners:} The \texttt{RTCPeerConnection} continuously monitors the \texttt{onconnectionstatechange} event. Concurrently, the signaling server listens for abrupt WebSocket disconnections.
-    \item \textbf{Execution:} If a user closes the tab or loses internet access, the server detects the broken socket and emits a \texttt{peer-disconnected} event to the remaining peer.
-    \item \textbf{Resolution:} The remaining client's UI immediately halts the transfer loop, displays an alert ("Peer disconnected. The transfer has stopped."), and cleans up local WebRTC objects to prevent memory leaks.
-\end{itemize}
-
-\subsection{Automated Memory Assembly \& Download}
-The final phase of the transfer ensures a seamless user experience.
-\begin{itemize}
-    \item \textbf{Blob Construction:} Once all chunks are verified and acknowledged, the array of \texttt{ArrayBuffer}s is passed into a single \texttt{Blob} object, inheriting the original file's MIME type.
-    \item \textbf{Triggering the Download:} The application invokes \texttt{URL.createObjectURL(blob)} to generate a temporary localized download link. A hidden \texttt{<a>} (anchor) element is injected into the Document Object Model (DOM), assigned the original (sanitized) filename, and programmatically clicked via JavaScript.
-    \item \textbf{Cleanup:} Immediately following the download trigger, the anchor is removed from the DOM, and \texttt{URL.revokeObjectURL()} is called to release the memory consumed by the Blob URL.
-\end{itemize}
+\subsection{Automated Download}
+Once all chunks are verified, the \texttt{ArrayBuffer} sequence is merged into a \texttt{Blob}. The client invokes \texttt{URL.createObjectURL(blob)} to generate a temporary download link, automatically triggers a click via an injected anchor (\texttt{<a>}) element, and immediately revokes the URL to release memory.
 
 \section{Conclusion}
-The P2P Web Share project successfully implements a highly secure, decentralized file-transfer platform. By maximizing the capabilities of the modern browser---specifically the WebRTC API for peer-to-peer streaming and the Web Crypto API for strict data integrity validation---the application achieves reliable, serverless data transfer. The implementation perfectly balances robust technical constraints with a highly responsive and modern user interface, fulfilling all MVP specifications effectively.
+The P2P Web Share MVP successfully delivers a secure, serverless file-transfer platform. By maximizing the native WebRTC and Web Crypto APIs, the system balances robust technical constraints with a highly responsive user interface, achieving all operational requirements effectively.
 
 \end{document}
 \end{spacing}
